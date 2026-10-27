@@ -1,0 +1,22 @@
+<Application x:Class="EnglishWords.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+           <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <SolidColorBrush x:Key="InkBrush" Color="#182B2B" />
+        <SolidColorBrush x:Key="MutedBrush" Color="#647575" />
+        <SolidColorBrush x:Key="AccentBrush" Color="#0E766E" />
+        <SolidColorBrush x:Key="CanvasBrush" Color="#F2F6F4" />
+        <SolidColorBrush x:Key="CardBrush" Color="#FFFFFF" />
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="FontFamily" Value="Segoe UI" />
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="FontFamily" Value="Segoe UI Semibold" />
+            <Setter Property="Padding" Value="14,9" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+    </Application.Resources>
+</Application>
