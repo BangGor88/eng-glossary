@@ -197,7 +197,7 @@ public sealed class SqliteVocabularyRepository(string databasePath) : IVocabular
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT Id, Ordinal, Word, PartOfSpeech, Definition, Example, Pronunciation,
-                   IsReviewWord, IsRead, CorrectStreak, IsMastered
+                     IsReviewWord, IsRead, CorrectStreak, IsMastered, TimesCorrect
             FROM Words
             WHERE LessonDate = (
                 SELECT Date FROM Lessons WHERE LessonDate < $date

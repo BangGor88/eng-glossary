@@ -7,7 +7,7 @@ namespace EnglishWords.Infrastructure.Ollama;
 
 public sealed class OllamaLessonGenerator(HttpClient httpClient) : ILessonGenerator
 {
-    public const string DefaultModel = "llama3.1:8b";
+    public const string DefaultModel = "llama3.2:3b";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -58,7 +58,7 @@ public sealed class OllamaLessonGenerator(HttpClient httpClient) : ILessonGenera
             },
             messages = new object[]
             {
-                new { role = "system", content = "You teach practical English vocabulary to a child. Return the requested number of distinct, useful English words at an age-appropriate level. Make every definition, example, and pronunciation hint distinct from the others so each quiz question has three clear choices. Use clear concise definitions, natural example sentences, common part-of-speech labels, and simple pronunciation hints in respelled English. Return only data matching the requested JSON schema." },
+                new { role = "system", content = "You teach practical English vocabulary to a child. Return the requested number of distinct, useful English words at an age-appropriate level. Make every definition and example distinct from the others so each quiz question has three clear choices. Use clear concise definitions, natural example sentences, common part-of-speech labels, and simple pronunciation hints in respelled English. Return only data matching the requested JSON schema." },
                 new { role = "user", content = $"Create {count} new vocabulary words for {date:yyyy-MM-dd}. Avoid obscure words, avoid repeating a word within the lesson, and do not use any of these words: {string.Join(", ", avoidWords)}." }
             }
         };

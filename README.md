@@ -1,18 +1,18 @@
 # English Words
 
-A Windows desktop app that teaches six English words each day with a read-the-card step, a short three-choice quiz, and achievement tracking. One or two words return from the previous day's final set; the remaining cards contain new words. After passing a quiz, the learner can generate another distinct six-word set on the same day. Completed sets and progress stay in a local SQLite database. Ollama generates words with `llama3.1:8b`.
+A Windows desktop app that teaches six English words each day with a read-the-card step, a short three-choice quiz, and achievement tracking. One or two words return from the previous day's final set; the remaining cards contain new words. After passing a quiz, the learner can generate another distinct six-word set on the same day. Completed sets and progress stay in a local SQLite database. Ollama generates words with `llama3.2:3b`.
 
 ## Requirements
 
 - Windows 10 version 22H2 or newer
 - .NET 10 SDK
 - Ollama for Windows
-- The `llama3.1:8b` model (about 4.9 GB to download; system memory needs vary)
+- The `llama3.2:3b` model (about 2 GB to download; memory needs vary by quantization and context size)
 
 Install the model in PowerShell:
 
 ```powershell
-ollama pull llama3.1:8b
+ollama pull llama3.2:3b
 ```
 
 Ollama must be running at its default local address, `http://localhost:11434`. The app does not download models or send lesson data to a remote service.
@@ -39,10 +39,10 @@ dotnet publish .\src\EnglishWords.App\EnglishWords.App.csproj -c Release -r win-
 
 The executable is `publish\win-x64\EnglishWords.App.exe`. The .NET runtime and the app's SQLite native library are bundled, so the target PC does not need the .NET runtime installed. Windows may extract the bundled native library to a temporary directory when the app starts.
 
-Ollama and `llama3.1:8b` are not bundled. On each target PC, install Ollama separately, run `ollama pull llama3.1:8b`, and leave Ollama running at `http://localhost:11434`. The app requires Windows 10 version 22H2 or newer. Its local lessons and scorecard are stored separately at `%LOCALAPPDATA%\EnglishWords\lessons.db`.
+Ollama and `llama3.2:3b` are not bundled. On each target PC, install Ollama separately, run `ollama pull llama3.2:3b`, and leave Ollama running at `http://localhost:11434`. The app requires Windows 10 version 22H2 or newer. Its local lessons and scorecard are stored separately at `%LOCALAPPDATA%\EnglishWords\lessons.db`.
 
 ## Troubleshooting
 
 - **Ollama unavailable:** Start the Ollama application and retry.
-- **Model missing:** Run `ollama pull llama3.1:8b` in PowerShell, then retry.
+- **Model missing:** Run `ollama pull llama3.2:3b` in PowerShell, then retry.
 - **Generation failed:** Retry after Ollama finishes loading the model. Incomplete responses are rejected rather than saved.

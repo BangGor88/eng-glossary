@@ -73,6 +73,34 @@ public sealed class SqliteVocabularyRepositoryTests
     }
 
     [Fact]
+    public async Task GetReviewWords_ReturnsCorrectCountsForCarryoverWords()
+    {
+        var path = TemporaryDatabasePath();
+        try
+        {
+            var repository = new SqliteVocabularyRepository(path);
+            await repository.InitializeAsync();
+            var previousDate = new DateOnly(2026, 10, 26);
+            var lesson = BuildLesson(previousDate) with
+            {
+                Words = BuildLesson(previousDate).Words
+                    .Select((word, index) => index == 0 ? word with { TimesCorrect = 4 } : word)
+                    .ToArray()
+            };
+            await repository.SaveLessonAsync(lesson);
+
+            var carryovers = await repository.GetReviewWordsAsync(previousDate.AddDays(1), 2);
+
+            Assert.Equal(2, carryovers.Count);
+            Assert.Equal(4, carryovers[0].TimesCorrect);
+        }
+        finally
+        {
+            DeleteDatabase(path);
+        }
+    }
+
+    [Fact]
     public async Task Initialize_UpgradesLegacyFiveWordLessonAndAddsSixthWord()
     {
         var path = TemporaryDatabasePath();
