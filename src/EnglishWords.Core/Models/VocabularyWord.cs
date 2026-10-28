@@ -12,11 +12,15 @@ public sealed record VocabularyWord(
     bool IsRead,
     int CorrectStreak,
     bool IsMastered,
-    int TimesCorrect = 0);
+    int TimesCorrect = 0,
+    VocabularyLanguage Language = VocabularyLanguage.English,
+    string DefinitionSource = "");
 
 public sealed record GeneratedWord(
     string Word,
     string PartOfSpeech,
     string Definition,
     string Example,
-    string Pronunciation);
+    string Pronunciation,
+    VocabularyLanguage Language = VocabularyLanguage.English,
+    string DefinitionSource = "");

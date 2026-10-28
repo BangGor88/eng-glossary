@@ -17,7 +17,14 @@ public sealed class SqliteVocabularyRepositoryTests
         {
             var repository = new SqliteVocabularyRepository(path);
             await repository.InitializeAsync();
-            var lesson = BuildLesson(new DateOnly(2026, 10, 27));
+            var lesson = BuildLesson(new DateOnly(2026, 10, 27)) with
+            {
+                Words = BuildLesson(new DateOnly(2026, 10, 27)).Words
+                    .Select((word, index) => index == 0
+                        ? word with { Language = VocabularyLanguage.Swedish, DefinitionSource = "https://sv.wiktionary.org/wiki/solnedg%C3%A5ng" }
+                        : word)
+                    .ToArray()
+            };
             await repository.SaveLessonAsync(lesson);
             await repository.StartQuizAttemptAsync(lesson.Date, 1);
             await repository.MarkWordReadAsync(lesson.Date, 1, lesson.Words[0].Id);
@@ -28,6 +35,8 @@ public sealed class SqliteVocabularyRepositoryTests
             Assert.NotNull(saved);
             Assert.Equal(6, saved.Words.Count);
             Assert.True(saved.Words[0].IsRead);
+            Assert.Equal(VocabularyLanguage.Swedish, saved.Words[0].Language);
+            Assert.Equal(lesson.Words[0].DefinitionSource, saved.Words[0].DefinitionSource);
             Assert.Equal(1, saved.Words[0].CorrectStreak);
             Assert.Equal(1, saved.Words[0].TimesCorrect);
             Assert.Equal(3, saved.QuizScore);
@@ -35,6 +44,37 @@ public sealed class SqliteVocabularyRepositoryTests
             Assert.Equal(1, saved.QuizAttempts);
             Assert.True(saved.QuizComplete);
             Assert.True(saved.QuizPassed);
+        }
+        finally
+        {
+            DeleteDatabase(path);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateWordDefinition_PersistsDictionaryDefinitionAndSource()
+    {
+        var path = TemporaryDatabasePath();
+        try
+        {
+            var repository = new SqliteVocabularyRepository(path);
+            await repository.InitializeAsync();
+            var lesson = BuildLesson(new DateOnly(2026, 10, 27));
+            await repository.SaveLessonAsync(lesson);
+            const string source = "https://sv.wiktionary.org/wiki/solnedg%C3%A5ng";
+
+            await repository.UpdateWordDefinitionAsync(
+                lesson.Date,
+                lesson.SetNumber,
+                lesson.Words[0].Id,
+                "substantiv",
+                "solens rörelse ner under horisonten vid en dags slut",
+                source);
+
+            var saved = await repository.GetLessonAsync(lesson.Date, lesson.SetNumber);
+            Assert.Equal("substantiv", saved?.Words[0].PartOfSpeech);
+            Assert.Equal("solens rörelse ner under horisonten vid en dags slut", saved?.Words[0].Definition);
+            Assert.Equal(source, saved?.Words[0].DefinitionSource);
         }
         finally
         {

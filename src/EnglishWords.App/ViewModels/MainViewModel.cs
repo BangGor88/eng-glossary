@@ -15,6 +15,7 @@ public sealed class MainViewModel : ObservableObject
     private const int PassingScore = 3;
     private readonly IVocabularyRepository _repository;
     private readonly DailyLessonService _lessonService;
+    private readonly Action _requestLanguageSelection;
     private DailyLesson? _lesson;
     private int _questionIndex;
     private int _quizScore;
@@ -26,10 +27,15 @@ public sealed class MainViewModel : ObservableObject
     private string _errorMessage = string.Empty;
     private string _answerFeedback = string.Empty;
 
-    public MainViewModel(IVocabularyRepository repository, DailyLessonService lessonService, TimeProvider timeProvider)
+    public MainViewModel(
+        IVocabularyRepository repository,
+        DailyLessonService lessonService,
+        TimeProvider timeProvider,
+        Action requestLanguageSelection)
     {
         _repository = repository;
         _lessonService = lessonService;
+        _requestLanguageSelection = requestLanguageSelection;
         RetryCommand = new AsyncCommand(_ => LoadAsync(), _ => !IsBusy);
         FlipCardCommand = new AsyncCommand(FlipCardAsync, _ => !IsBusy && !IsPracticeComplete);
         SelectAnswerCommand = new AsyncCommand(SelectAnswerAsync, parameter => !IsBusy && !IsAnswerSubmitted && parameter is QuizOption);
@@ -39,6 +45,7 @@ public sealed class MainViewModel : ObservableObject
         OpenScorecardCommand = new AsyncCommand(_ => OpenScorecardAsync(), _ => !IsBusy);
         ReturnFromScorecardCommand = new RelayCommand(_ => Page = _pageBeforeScorecard, _ => !IsBusy);
         NewSetCommand = new AsyncCommand(_ => GenerateNewSetAsync(), _ => !IsBusy && IsPracticeComplete);
+        ChangeLanguageCommand = new RelayCommand(_ => _requestLanguageSelection());
     }
 
     public ObservableCollection<WordCardViewModel> LessonWords { get; } = [];
@@ -53,6 +60,7 @@ public sealed class MainViewModel : ObservableObject
     public ICommand OpenScorecardCommand { get; }
     public ICommand ReturnFromScorecardCommand { get; }
     public ICommand NewSetCommand { get; }
+    public ICommand ChangeLanguageCommand { get; }
     public string Page { get => _page; private set { if (SetProperty(ref _page, value)) { OnPropertyChanged(nameof(IsCardsPage)); OnPropertyChanged(nameof(IsQuizPage)); OnPropertyChanged(nameof(IsResultsPage)); OnPropertyChanged(nameof(IsScorecardPage)); NotifyCommands(); } } }
     public bool IsCardsPage => Page == "Cards";
     public bool IsQuizPage => Page == "Quiz";
@@ -308,6 +316,7 @@ public sealed class MainViewModel : ObservableObject
         (FinishCommand as RelayCommand)?.NotifyCanExecuteChanged();
         (OpenScorecardCommand as AsyncCommand)?.NotifyCanExecuteChanged();
         (NewSetCommand as AsyncCommand)?.NotifyCanExecuteChanged();
+        (ChangeLanguageCommand as RelayCommand)?.NotifyCanExecuteChanged();
     }
 }
 
@@ -330,8 +339,11 @@ public sealed class WordCardViewModel(VocabularyWord word) : ObservableObject
     public bool IsRead => Word.IsRead;
     public bool IsFlipped { get => _isFlipped; set => SetProperty(ref _isFlipped, value); }
     public string CardStatus => Word.IsMastered ? "MASTERED" : Word.IsReviewWord ? "REVISIT" : "NEW TODAY";
+    public string LanguageLabel => Word.Language == VocabularyLanguage.Swedish ? "SWEDISH" : "ENGLISH";
     public string ReadLabel => IsRead ? "READ ONCE · TAP TO REVIEW" : "TAP TO TURN OVER";
     public string MasteryLabel => $"{Word.CorrectStreak} of 5 correct in a row";
+    public bool HasDictionarySource => Uri.TryCreate(Word.DefinitionSource, UriKind.Absolute, out _);
+    public Uri? DictionarySourceUri => HasDictionarySource ? new Uri(Word.DefinitionSource) : null;
     public void MarkRead() { if (Word.IsRead) return; Word = Word with { IsRead = true }; OnPropertyChanged(nameof(IsRead)); }
     public void UpdateMastery(int streak, bool mastered, int timesCorrect) =>
         Word = Word with { CorrectStreak = streak, IsMastered = mastered, TimesCorrect = timesCorrect };

@@ -6,7 +6,8 @@ namespace EnglishWords.Core.Services;
 public sealed class DailyLessonService(
     IVocabularyRepository repository,
     ILessonGenerator generator,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ISwedishDefinitionProvider? swedishDefinitionProvider = null)
 {
     public const int DailyWordCount = 6;
     private const int CarryoverWordCount = 2;
@@ -18,7 +19,8 @@ public sealed class DailyLessonService(
         var existing = await repository.GetLatestLessonAsync(date, cancellationToken);
         if (existing is not null)
         {
-            return await CompleteExistingLessonAsync(existing, cancellationToken, generationProgress);
+            var completed = await CompleteExistingLessonAsync(existing, cancellationToken, generationProgress);
+            return await EnsureSwedishDefinitionsAsync(completed, cancellationToken);
         }
 
         var carryovers = await repository.GetReviewWordsAsync(date, CarryoverWordCount, cancellationToken);
@@ -43,7 +45,9 @@ public sealed class DailyLessonService(
             false,
             word.CorrectStreak,
             word.IsMastered,
-            0))
+            0,
+            word.Language,
+            word.DefinitionSource))
             .Concat(generatedWords.Select((word, index) => new VocabularyWord(
                 Guid.NewGuid(),
                 carryovers.Count + index + 1,
@@ -56,7 +60,9 @@ public sealed class DailyLessonService(
                 false,
                 0,
                 false,
-                0)))
+                0,
+                word.Language,
+                word.DefinitionSource)))
             .ToArray();
 
         var lesson = new DailyLesson(date, words, SetNumber: 1);
@@ -65,6 +71,58 @@ public sealed class DailyLessonService(
 
         await repository.SaveLessonAsync(lesson, cancellationToken);
         return lesson;
+    }
+
+    private async Task<DailyLesson> EnsureSwedishDefinitionsAsync(
+        DailyLesson lesson,
+        CancellationToken cancellationToken)
+    {
+        if (swedishDefinitionProvider is null)
+        {
+            return lesson;
+        }
+
+        var words = lesson.Words.ToArray();
+        var missingWords = words
+            .Where(word =>
+                word.Language == VocabularyLanguage.Swedish &&
+                string.IsNullOrWhiteSpace(word.DefinitionSource))
+            .ToArray();
+        if (missingWords.Length == 0)
+        {
+            return lesson;
+        }
+
+        var definitions = await swedishDefinitionProvider.GetDefinitionsAsync(
+            missingWords.Select(word => word.Word).ToArray(),
+            cancellationToken);
+        foreach (var word in missingWords)
+        {
+            if (!definitions.TryGetValue(word.Word, out var definition))
+            {
+                throw new InvalidDataException($"No Swedish Wiktionary definition was found for '{word.Word}'.");
+            }
+
+            var replacement = word with
+            {
+                PartOfSpeech = definition.PartOfSpeech,
+                Definition = definition.Definition,
+                DefinitionSource = definition.SourceUrl
+            };
+            await repository.UpdateWordDefinitionAsync(
+                lesson.Date,
+                lesson.SetNumber,
+                word.Id,
+                replacement.PartOfSpeech,
+                replacement.Definition,
+                replacement.DefinitionSource,
+                cancellationToken);
+            var index = Array.FindIndex(words, candidate => candidate.Id == word.Id);
+            words[index] = replacement;
+        }
+
+        LessonValidator.Validate(words.Select(ToGeneratedWord).ToArray(), DailyWordCount);
+        return lesson with { Words = words };
     }
 
     public async Task<DailyLesson> GenerateNewSetAsync(
@@ -97,7 +155,10 @@ public sealed class DailyLessonService(
             false,
             false,
             0,
-            false)).ToArray();
+            false,
+            0,
+            word.Language,
+            word.DefinitionSource)).ToArray();
         LessonValidator.Validate(words.Select(ToGeneratedWord).ToArray(), DailyWordCount);
 
         var lesson = new DailyLesson(completedLesson.Date, words, SetNumber: completedLesson.SetNumber + 1);
@@ -133,7 +194,9 @@ public sealed class DailyLessonService(
             false,
             0,
             false,
-            0)).ToArray();
+            0,
+            word.Language,
+            word.DefinitionSource)).ToArray();
 
         var completedWords = lesson.Words.Concat(additions).ToArray();
         LessonValidator.Validate(completedWords.Select(ToGeneratedWord).ToArray(), DailyWordCount);
@@ -148,5 +211,7 @@ public sealed class DailyLessonService(
         word.PartOfSpeech,
         word.Definition,
         word.Example,
-        word.Pronunciation);
+        word.Pronunciation,
+        word.Language,
+        word.DefinitionSource);
 }

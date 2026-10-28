@@ -51,6 +51,8 @@ public sealed class SqliteVocabularyRepository(string databasePath) : IVocabular
                 CorrectStreak INTEGER NOT NULL DEFAULT 0,
                 IsMastered INTEGER NOT NULL DEFAULT 0,
                 TimesCorrect INTEGER NOT NULL DEFAULT 0,
+                Language TEXT NOT NULL DEFAULT 'English',
+                DefinitionSource TEXT NOT NULL DEFAULT '',
                 UNIQUE(LessonDate, Ordinal)
             );
             """;
@@ -68,6 +70,8 @@ public sealed class SqliteVocabularyRepository(string databasePath) : IVocabular
         await EnsureColumnAsync(connection, "Words", "CorrectStreak", "INTEGER NOT NULL DEFAULT 0", cancellationToken);
         await EnsureColumnAsync(connection, "Words", "IsMastered", "INTEGER NOT NULL DEFAULT 0", cancellationToken);
         await EnsureColumnAsync(connection, "Words", "TimesCorrect", "INTEGER NOT NULL DEFAULT 0", cancellationToken);
+        await EnsureColumnAsync(connection, "Words", "Language", "TEXT NOT NULL DEFAULT 'English'", cancellationToken);
+        await EnsureColumnAsync(connection, "Words", "DefinitionSource", "TEXT NOT NULL DEFAULT ''", cancellationToken);
         await using var backfillCommand = connection.CreateCommand();
         backfillCommand.CommandText = "UPDATE Lessons SET LessonDate = substr(Date, 1, 10) WHERE LessonDate = '';";
         await backfillCommand.ExecuteNonQueryAsync(cancellationToken);
@@ -107,7 +111,7 @@ public sealed class SqliteVocabularyRepository(string databasePath) : IVocabular
         command.Parameters.Clear();
         command.CommandText = """
                  SELECT Id, Ordinal, Word, PartOfSpeech, Definition, Example, Pronunciation,
-                     IsReviewWord, IsRead, CorrectStreak, IsMastered, TimesCorrect
+                     IsReviewWord, IsRead, CorrectStreak, IsMastered, TimesCorrect, Language, DefinitionSource
             FROM Words
             WHERE LessonDate = $date
             ORDER BY Ordinal;
@@ -178,7 +182,7 @@ public sealed class SqliteVocabularyRepository(string databasePath) : IVocabular
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT w.Id, w.Ordinal, w.Word, w.PartOfSpeech, w.Definition, w.Example, w.Pronunciation,
-                   w.IsReviewWord, w.IsRead, w.CorrectStreak, w.IsMastered, w.TimesCorrect
+                   w.IsReviewWord, w.IsRead, w.CorrectStreak, w.IsMastered, w.TimesCorrect, w.Language, w.DefinitionSource
             FROM Words w
             INNER JOIN Lessons l ON l.Date = w.LessonDate
             WHERE l.LessonDate = $date
@@ -197,7 +201,7 @@ public sealed class SqliteVocabularyRepository(string databasePath) : IVocabular
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT Id, Ordinal, Word, PartOfSpeech, Definition, Example, Pronunciation,
-                     IsReviewWord, IsRead, CorrectStreak, IsMastered, TimesCorrect
+                     IsReviewWord, IsRead, CorrectStreak, IsMastered, TimesCorrect, Language, DefinitionSource
             FROM Words
             WHERE LessonDate = (
                 SELECT Date FROM Lessons WHERE LessonDate < $date
@@ -270,6 +274,30 @@ public sealed class SqliteVocabularyRepository(string databasePath) : IVocabular
         await using var connection = await OpenConnectionAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = "UPDATE Words SET IsRead = 1 WHERE Id = $id AND LessonDate = $date;";
+        command.Parameters.AddWithValue("$id", wordId.ToString("D"));
+        command.Parameters.AddWithValue("$date", GetLessonKey(date, setNumber));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task UpdateWordDefinitionAsync(
+        DateOnly date,
+        int setNumber,
+        Guid wordId,
+        string partOfSpeech,
+        string definition,
+        string definitionSource,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE Words
+            SET PartOfSpeech = $partOfSpeech, Definition = $definition, DefinitionSource = $definitionSource
+            WHERE Id = $id AND LessonDate = $date;
+            """;
+        command.Parameters.AddWithValue("$partOfSpeech", partOfSpeech);
+        command.Parameters.AddWithValue("$definition", definition);
+        command.Parameters.AddWithValue("$definitionSource", definitionSource);
         command.Parameters.AddWithValue("$id", wordId.ToString("D"));
         command.Parameters.AddWithValue("$date", GetLessonKey(date, setNumber));
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -359,7 +387,9 @@ public sealed class SqliteVocabularyRepository(string databasePath) : IVocabular
         reader.GetInt32(8) != 0,
         reader.GetInt32(9),
         reader.GetInt32(10) != 0,
-        reader.GetInt32(11));
+        reader.GetInt32(11),
+        Enum.Parse<VocabularyLanguage>(reader.GetString(12), ignoreCase: true),
+        reader.GetString(13));
 
     private static async Task InsertWordsAsync(
         SqliteConnection connection,
@@ -376,10 +406,10 @@ public sealed class SqliteVocabularyRepository(string databasePath) : IVocabular
             command.CommandText = """
                 INSERT INTO Words (
                     Id, LessonDate, Ordinal, Word, PartOfSpeech, Definition, Example, Pronunciation,
-                    Repetitions, EaseFactor, IntervalDays, DueAt, IsReviewWord, IsRead, CorrectStreak, IsMastered, TimesCorrect)
+                    Repetitions, EaseFactor, IntervalDays, DueAt, IsReviewWord, IsRead, CorrectStreak, IsMastered, TimesCorrect, Language, DefinitionSource)
                 VALUES (
                     $id, $date, $ordinal, $word, $partOfSpeech, $definition, $example, $pronunciation,
-                    0, 2.5, 0, '', $isReviewWord, $isRead, $correctStreak, $isMastered, $timesCorrect);
+                    0, 2.5, 0, '', $isReviewWord, $isRead, $correctStreak, $isMastered, $timesCorrect, $language, $definitionSource);
                 """;
             command.Parameters.AddWithValue("$id", word.Id.ToString("D"));
             command.Parameters.AddWithValue("$date", GetLessonKey(date, setNumber));
@@ -394,6 +424,8 @@ public sealed class SqliteVocabularyRepository(string databasePath) : IVocabular
             command.Parameters.AddWithValue("$correctStreak", word.CorrectStreak);
             command.Parameters.AddWithValue("$isMastered", word.IsMastered ? 1 : 0);
             command.Parameters.AddWithValue("$timesCorrect", word.TimesCorrect);
+            command.Parameters.AddWithValue("$language", word.Language.ToString());
+            command.Parameters.AddWithValue("$definitionSource", word.DefinitionSource);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
     }

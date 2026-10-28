@@ -1,13 +1,19 @@
-using System.Net.Http.Headers;
+﻿using System.Net.Http.Headers;
 using System.Text.Json;
 using EnglishWords.Core.Abstractions;
 using EnglishWords.Core.Models;
 
 namespace EnglishWords.Infrastructure.Ollama;
 
-public sealed class OllamaLessonGenerator(HttpClient httpClient) : ILessonGenerator
+public sealed class OllamaLessonGenerator(
+    HttpClient httpClient,
+    VocabularyLanguage language = VocabularyLanguage.English,
+    string? modelOverride = null) : ILessonGenerator
 {
-    public const string DefaultModel = "llama3.2:3b";
+    public const string EnglishModel = "llama3.2:3b";
+    public const string SwedishModel = "fcole90/ai-sweden-gpt-sw3:1.3b";
+    public string DefaultModel => modelOverride ??
+                                  (language == VocabularyLanguage.Swedish ? SwedishModel : EnglishModel);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -22,6 +28,7 @@ public sealed class OllamaLessonGenerator(HttpClient httpClient) : ILessonGenera
     {
         await EnsureModelAvailableAsync(cancellationToken);
         progress?.Report($"Ollama is ready and {DefaultModel} is available. Generating {count} words...");
+        var languageName = language == VocabularyLanguage.Swedish ? "Swedish" : "English";
 
         var request = new
         {
@@ -58,8 +65,8 @@ public sealed class OllamaLessonGenerator(HttpClient httpClient) : ILessonGenera
             },
             messages = new object[]
             {
-                new { role = "system", content = "You teach practical English vocabulary to a child. Return the requested number of distinct, useful English words at an age-appropriate level. Make every definition and example distinct from the others so each quiz question has three clear choices. Use clear concise definitions, natural example sentences, common part-of-speech labels, and simple pronunciation hints in respelled English. Return only data matching the requested JSON schema." },
-                new { role = "user", content = $"Create {count} new vocabulary words for {date:yyyy-MM-dd}. Avoid obscure words, avoid repeating a word within the lesson, and do not use any of these words: {string.Join(", ", avoidWords)}." }
+                new { role = "system", content = $"You teach practical {languageName} vocabulary to a child. Return the requested number of distinct, useful {languageName} words at an age-appropriate level. The vocabulary word, part-of-speech label, definition, example sentence, and pronunciation hint must all be written in {languageName}. Never write a definition or example in another language. Preserve Swedish letters å, ä, and ö. Make every definition and example distinct from the others so each quiz question has three clear choices. Return only data matching the requested JSON schema." },
+                new { role = "user", content = $"Create {count} new {languageName} vocabulary words for {date:yyyy-MM-dd}. The meaning/definition and example for each word must be in {languageName}, the same language as the word itself. Avoid obscure words, avoid repeating a word within the lesson, and do not use any of these words: {string.Join(", ", avoidWords)}.{CommonWordHint(language)}" }
             }
         };
 
@@ -93,7 +100,8 @@ public sealed class OllamaLessonGenerator(HttpClient httpClient) : ILessonGenera
                 await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
                 var payload = await JsonSerializer.DeserializeAsync<ChatResponse>(stream, JsonOptions, cancellationToken);
                 var lesson = JsonSerializer.Deserialize<LessonResponse>(payload?.Message?.Content ?? string.Empty, JsonOptions);
-                return lesson?.Words ?? throw new OllamaGenerationException("Ollama returned an empty lesson. Retry generation.");
+                return lesson?.Words?.Select(word => word with { Language = language }).ToArray()
+                    ?? throw new OllamaGenerationException("Ollama returned an empty lesson. Retry generation.");
             }
             catch (JsonException exception)
             {
@@ -138,6 +146,12 @@ public sealed class OllamaLessonGenerator(HttpClient httpClient) : ILessonGenera
             }
         }
     }
+
+    // Rare or literary words usually have no example sentence in Wiktionary, so ask for everyday vocabulary.
+    private static string CommonWordHint(VocabularyLanguage language) =>
+        language == VocabularyLanguage.English
+            ? " Choose common single words that a 9 to 13 year old meets in school books and everyday speech, such as 'journey', 'brave', 'measure' or 'protect'. Do not choose rare, literary, archaic, technical, or foreign words, and keep each word in lowercase."
+            : string.Empty;
 
     private sealed record ChatResponse(ChatMessage? Message);
     private sealed record ChatMessage(string? Content);

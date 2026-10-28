@@ -1,6 +1,7 @@
 using EnglishWords.Core.Abstractions;
 using EnglishWords.Core.Models;
 using EnglishWords.Core.Services;
+using EnglishWords.Infrastructure.Dictionaries;
 using Xunit;
 
 namespace EnglishWords.Core.Tests;
@@ -57,6 +58,42 @@ public sealed class DailyLessonServiceTests
     }
 
     [Fact]
+    public async Task GetTodayAsync_RefreshesLegacySwedishDefinitionsFromDictionary()
+    {
+        var date = new DateOnly(2026, 10, 27);
+        var repository = new MemoryRepository();
+        var words = ValidWords().Select((word, index) => new VocabularyWord(
+            Guid.NewGuid(),
+            index + 1,
+            word.Word,
+            word.PartOfSpeech,
+            "English model definition",
+            word.Example,
+            word.Pronunciation,
+            false,
+            false,
+            0,
+            false,
+            0,
+            VocabularyLanguage.Swedish)).ToArray();
+        await repository.SaveLessonAsync(new DailyLesson(date, words));
+        var service = new DailyLessonService(
+            repository,
+            new FakeGenerator(ValidWords()),
+            new FixedTimeProvider(Utc(2026, 10, 27)),
+            new FakeSwedishDefinitionProvider());
+
+        var lesson = await service.GetTodayAsync();
+
+        Assert.All(lesson.Words, word =>
+        {
+            Assert.Equal("substantiv", word.PartOfSpeech);
+            Assert.StartsWith("svensk ordförklaring för ", word.Definition);
+            Assert.StartsWith("https://sv.wiktionary.org/wiki/", word.DefinitionSource);
+        });
+    }
+
+    [Fact]
     public async Task GenerateNewSetAsync_AfterPassedQuiz_SavesNextNumberedSetWithoutReusingTodayWords()
     {
         var repository = new MemoryRepository();
@@ -72,6 +109,32 @@ public sealed class DailyLessonServiceTests
         Assert.Equal(2, repository.LessonCount);
         Assert.Equal(6, generator.RequestedCounts[1]);
         Assert.Equal(6, generator.AvoidedWords[1].Count);
+    }
+
+    [Fact]
+    public async Task GenerateNewSetAsync_UsesCurrentSwedishGeneratorAndDictionaryDefinitions()
+    {
+        var repository = new MemoryRepository();
+        var modelGenerator = new FakeGenerator(ValidWords(), NewSetWords());
+        var swedishGenerator = new SwedishDictionaryLessonGenerator(
+            modelGenerator,
+            new IdentityTranslations(),
+            new FakeSwedishDefinitionProvider());
+        var service = new DailyLessonService(
+            repository,
+            swedishGenerator,
+            new FixedTimeProvider(Utc(2026, 10, 27)));
+        var first = await service.GetTodayAsync();
+
+        var second = await service.GenerateNewSetAsync(first with { QuizPassed = true });
+
+        Assert.All(second.Words, word =>
+        {
+            Assert.Equal(VocabularyLanguage.Swedish, word.Language);
+            Assert.StartsWith("svensk ordförklaring för ", word.Definition);
+            Assert.StartsWith("https://sv.wiktionary.org/wiki/", word.DefinitionSource);
+        });
+        Assert.Equal(2, second.SetNumber);
     }
 
     private static IReadOnlyList<GeneratedWord> ValidWords() =>
@@ -104,6 +167,35 @@ public sealed class DailyLessonServiceTests
         public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
         public override DateTimeOffset GetUtcNow() => _utcNow;
         public void SetUtcNow(DateTimeOffset value) => _utcNow = value;
+    }
+
+    private sealed class IdentityTranslations : ISwedishTranslationProvider
+    {
+        public Task<string?> GetSwedishTranslationAsync(string englishWord, CancellationToken cancellationToken = default) =>
+            Task.FromResult<string?>("sv" + englishWord);
+    }
+
+    private sealed class FakeSwedishDefinitionProvider : ISwedishDefinitionProvider
+    {
+        public Task<IReadOnlyDictionary<string, DictionaryDefinition>> GetDefinitionsAsync(
+            IReadOnlyCollection<string> words,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyDictionary<string, DictionaryDefinition>>(
+                words.ToDictionary(
+                    word => word,
+                    word => new DictionaryDefinition(
+                        "substantiv",
+                        $"svensk ordförklaring för {word}",
+                        $"https://sv.wiktionary.org/wiki/{Uri.EscapeDataString(word)}"),
+                    StringComparer.OrdinalIgnoreCase));
+
+        public Task<DictionaryDefinition?> GetDefinitionAsync(string word, CancellationToken cancellationToken = default) =>
+            Task.FromResult<DictionaryDefinition?>(new DictionaryDefinition(
+                "substantiv",
+                $"svensk ordförklaring för {word}",
+                $"https://sv.wiktionary.org/wiki/{Uri.EscapeDataString(word)}",
+                $"Exempel med {word}.",
+                $"uttal {word}"));
     }
 
     private sealed class FakeGenerator(IReadOnlyList<GeneratedWord> words, IReadOnlyList<GeneratedWord>? newSetWords = null) : ILessonGenerator
@@ -185,6 +277,23 @@ public sealed class DailyLessonServiceTests
             Task.FromResult<IReadOnlyList<ScorecardWord>>(Array.Empty<ScorecardWord>());
 
         public Task MarkWordReadAsync(DateOnly date, int setNumber, Guid wordId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task UpdateWordDefinitionAsync(
+            DateOnly date,
+            int setNumber,
+            Guid wordId,
+            string partOfSpeech,
+            string definition,
+            string definitionSource,
+            CancellationToken cancellationToken = default)
+        {
+            var lesson = _lessons[(date, setNumber)];
+            var words = lesson.Words.Select(word => word.Id == wordId
+                ? word with { PartOfSpeech = partOfSpeech, Definition = definition, DefinitionSource = definitionSource }
+                : word).ToArray();
+            _lessons[(date, setNumber)] = lesson with { Words = words };
+            return Task.CompletedTask;
+        }
 
         public Task StartQuizAttemptAsync(DateOnly date, int setNumber, CancellationToken cancellationToken = default) => Task.CompletedTask;
 

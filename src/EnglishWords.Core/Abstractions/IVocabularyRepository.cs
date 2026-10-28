@@ -13,6 +13,14 @@ public interface IVocabularyRepository
     Task<IReadOnlyList<VocabularyWord>> GetReviewWordsAsync(DateOnly beforeDate, int count, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ScorecardWord>> GetScorecardAsync(CancellationToken cancellationToken = default);
     Task MarkWordReadAsync(DateOnly date, int setNumber, Guid wordId, CancellationToken cancellationToken = default);
+    Task UpdateWordDefinitionAsync(
+        DateOnly date,
+        int setNumber,
+        Guid wordId,
+        string partOfSpeech,
+        string definition,
+        string definitionSource,
+        CancellationToken cancellationToken = default);
     Task StartQuizAttemptAsync(DateOnly date, int setNumber, CancellationToken cancellationToken = default);
     Task SaveQuizAnswerAsync(
         DateOnly date,
